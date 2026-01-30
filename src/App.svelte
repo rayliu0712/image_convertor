@@ -1,14 +1,53 @@
 <script lang="ts">
+  let inputFileElement: HTMLInputElement;
   let quality = $state(100);
   let outputFormat = $state("jpg");
-  let imgSrc = $state("");
-  let inputFileElement: HTMLInputElement;
+  let imageUrls = $state<string[]>([]);
 
-  function download(event: Event) {}
+  function download(e: Event) {}
 
-  const li: Array<number> = [];
-  for (let i = 1; i < 19; i++) {
-    li.push(i);
+  function createNewUrls(array: Blob[]) {
+    const newUrls = array.map((blob: Blob) => URL.createObjectURL(blob));
+    imageUrls.splice(0, 0, ...newUrls);
+
+    inputFileElement.value = "";
+  }
+
+  function onInputFiles(e: Event) {
+    const fileList = inputFileElement.files;
+    if (fileList) {
+      createNewUrls(Array.from(fileList));
+    }
+  }
+
+  function onPaste(e: ClipboardEvent) {
+    const fileList = e.clipboardData?.files;
+    if (fileList) {
+      createNewUrls(Array.from(fileList));
+    }
+  }
+
+  async function onReadClipboard(e: Event) {
+    const clipboardItems = await navigator.clipboard.read();
+
+    const blobArray: Blob[] = [];
+
+    for (const item of clipboardItems) {
+      const type = item.types.find((type: String) => type.startsWith("image/"));
+
+      if (type) {
+        const blob = await item.getType(type);
+        blobArray.push(blob);
+      }
+    }
+
+    createNewUrls(blobArray);
+  }
+
+  function remove(i: number) {
+    const url = imageUrls[i];
+    URL.revokeObjectURL(url);
+    imageUrls.splice(i, 1);
   }
 </script>
 
@@ -18,23 +57,42 @@
   accept="image/*"
   multiple
   bind:this={inputFileElement}
+  onchange={onInputFiles}
 />
 
-<div class="h-screen flex flex-row p-1">
+<div class="h-screen flex flex-row p-1" onpaste={onPaste}>
   <!-- thumbnails -->
-  <div class="flex-3 grid grid-cols-5 gap-1 overflow-y-scroll pr-1">
+  <div
+    class="flex-3 grid grid-cols-5 gap-1 content-start overflow-y-scroll pr-1"
+  >
     <button
-      class="w-full aspect-square bg-neutral-600 cursor-pointer text-4xl"
+      class="w-full aspect-square bg-neutral-600 cursor-pointer text-5xl"
       onclick={() => inputFileElement.click()}
     >
       +
     </button>
-    {#each li as i}
-      <img
-        alt="thumbnail"
-        src="assets/{i}.jpg"
-        class="w-full aspect-square object-cover"
-      />
+
+    <button
+      class="w-full aspect-square bg-neutral-600 cursor-pointer text-5xl"
+      onclick={onReadClipboard}
+    >
+      📋
+    </button>
+
+    {#each imageUrls as url, i}
+      <div class="w-full aspect-square relative group">
+        <img alt="thumbnail" src={url} class="size-full object-cover" />
+
+        <div
+          class="absolute inset-0 duration-300 bg-black opacity-0 group-hover:opacity-70 flex items-center justify-center"
+        >
+          <button
+            class="absolute top-1 right-1 cursor-pointer"
+            onclick={() => remove(i)}>✕</button
+          >
+          <button onclick={() => {}} class="cursor-pointer">View</button>
+        </div>
+      </div>
     {/each}
   </div>
 

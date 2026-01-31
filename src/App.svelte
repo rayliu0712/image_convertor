@@ -1,4 +1,6 @@
 <script lang="ts">
+  import JSZip from "jszip";
+
   const FORMATS = [
     { type: "image/jpeg", ext: "jpg" },
     { type: "image/png", ext: "png" },
@@ -57,24 +59,20 @@
     }
   }
 
-  function downloadOne(blob: Blob, filename: string) {
+  function download(blob: Blob, filename: string) {
     const url = URL.createObjectURL(blob);
-
-    const filenameWithoutExt = filename.slice(0, filename.lastIndexOf("."));
-    let ext = blob.type.split("/")[1];
-    if (ext == "jpeg") {
-      ext = "jpg";
-    }
 
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${filenameWithoutExt}.${ext}`;
+    a.download = filename;
     a.click();
 
     URL.revokeObjectURL(url);
   }
 
-  async function convertOne(file: File) {
+  async function convertImageFile(
+    file: File,
+  ): Promise<{ blob: Blob; filename: string }> {
     const bitmap = await createImageBitmap(file);
     const { width, height } = bitmap;
 
@@ -86,18 +84,54 @@
     ctx.fillStyle = "white";
     ctx.fillRect(0, 0, width, height);
     ctx.drawImage(bitmap, 0, 0, width, height);
-
-    canvas.toBlob(
-      (blob) => downloadOne(blob!, file.name),
-      outputType,
-      quality / 100, // for image/png, quality param is ignored
-    );
-
     bitmap.close();
+
+    return new Promise((resolve) => {
+      canvas.toBlob(
+        (blob) => {
+          let filename = file.name;
+          filename = filename.slice(0, filename.lastIndexOf("."));
+
+          let ext = blob!.type.split("/")[1];
+          if (ext == "jpeg") {
+            ext = "jpg";
+          }
+
+          // TODO: 避免重複檔名
+          filename = `${filename}.${ext}`;
+
+          resolve({ blob: blob!, filename: filename });
+        },
+        outputType,
+        quality / 100, // for image/png, quality param is ignored
+      );
+    });
   }
 
-  async function startConvert() {
-    await Promise.all(images.map(({ file }) => convertOne(file)));
+  async function clickDownloadButton() {
+    const count = images.length;
+
+    if (count <= 4) {
+      await Promise.all(
+        images.map(async ({ file }) => {
+          const { blob, filename } = await convertImageFile(file);
+          download(blob, filename);
+        }),
+      );
+
+      return;
+    }
+
+    // images > 4
+    const zip = JSZip();
+    await Promise.all(
+      images.map(async ({ file }) => {
+        const { blob, filename } = await convertImageFile(file);
+        zip.file(filename, blob);
+      }),
+    );
+    const blob = await zip.generateAsync({ type: "blob" });
+    download(blob, `converted_${count}_images.zip`);
   }
 </script>
 
@@ -171,7 +205,7 @@
     {/if}
 
     <button
-      onclick={startConvert}
+      onclick={clickDownloadButton}
       class="self-end rounded-full duration-150 bg-cyan-700 cursor-pointer hover:bg-cyan-600 px-8 py-2"
       >Download All</button
     >

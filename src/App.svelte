@@ -1,26 +1,37 @@
 <script lang="ts">
   import JSZip from "jszip";
 
-  const FORMATS = [
-    { type: "image/jpeg", ext: "jpg" },
-    { type: "image/png", ext: "png" },
-    { type: "image/webp", ext: "webp" },
-  ];
+  const FORMATS = new Map([
+    ["image/jpeg", "jpg"],
+    ["image/png", "png"],
+    ["image/webp", "webp"],
+  ]);
 
-  const images = $state<{ imageUrl: string; file: File }[]>([]);
+  const images = $state<
+    { url: string; blob: Blob; name: string; ext: string }[]
+  >([]);
   let outputType = $state("image/jpeg");
   let quality = $state(100);
 
   let dialog: HTMLDialogElement;
-  let viewIndex = $state<number | null>(null);
+  let viewIndex = $state(-1);
 
   function addNewImages(fileList: FileList) {
     const newImages = Array.from(fileList)
       .filter((file) => file.type.startsWith("image/"))
-      .map((file) => ({
-        imageUrl: URL.createObjectURL(file),
-        file: file,
-      }));
+      .map((file) => {
+        const filename = file.name;
+        const i = filename.lastIndexOf(".");
+        const name = i === -1 ? filename : filename.slice(0, i);
+        const ext = i === -1 ? "" : filename.slice(i + 1);
+
+        return {
+          url: URL.createObjectURL(file),
+          blob: file,
+          name: name,
+          ext: ext,
+        };
+      });
 
     images.splice(0, 0, ...newImages);
   }
@@ -48,7 +59,7 @@
   }
 
   function removeImage(i: number) {
-    const url = images[i].imageUrl;
+    const url = images[i].url;
     URL.revokeObjectURL(url);
     images.splice(i, 1);
   }
@@ -74,10 +85,11 @@
   }
 
   async function convertImageFile(
-    file: File,
+    blob: Blob,
+    name: string,
     i: number,
-  ): Promise<{ blob: Blob; filename: string }> {
-    const bitmap = await createImageBitmap(file);
+  ): Promise<{ converted: Blob; filename: string }> {
+    const bitmap = await createImageBitmap(blob);
     const { width, height } = bitmap;
 
     const canvas = document.createElement("canvas");
@@ -90,25 +102,18 @@
     ctx.drawImage(bitmap, 0, 0, width, height);
     bitmap.close();
 
-    return new Promise((resolve) => {
+    return new Promise((resolve) =>
       canvas.toBlob(
         (blob) => {
-          let filename = file.name;
-          filename = filename.slice(0, filename.lastIndexOf("."));
+          const ext = FORMATS.get(blob!.type);
+          const filename = `${name}_${i + 1}.${ext}`;
 
-          let ext = blob!.type.split("/")[1];
-          if (ext == "jpeg") {
-            ext = "jpg";
-          }
-
-          filename = `${filename}_${i + 1}.${ext}`;
-
-          resolve({ blob: blob!, filename: filename });
+          resolve({ converted: blob!, filename: filename });
         },
         outputType,
         quality / 100, // for image/png, quality param is ignored
-      );
-    });
+      ),
+    );
   }
 
   async function clickDownloadButton() {
@@ -116,9 +121,9 @@
 
     if (count <= 4) {
       await Promise.all(
-        images.map(async ({ file }, i) => {
-          const { blob, filename } = await convertImageFile(file, i);
-          download(blob, filename);
+        images.map(async ({ blob, name }, i) => {
+          const { converted, filename } = await convertImageFile(blob, name, i);
+          download(converted, filename);
         }),
       );
 
@@ -128,13 +133,13 @@
     // images > 4
     const zip = JSZip();
     await Promise.all(
-      images.map(async ({ file }, i) => {
-        const { blob, filename } = await convertImageFile(file, i);
-        zip.file(filename, blob);
+      images.map(async ({ blob, name }, i) => {
+        const { converted, filename } = await convertImageFile(blob, name, i);
+        zip.file(filename, converted);
       }),
     );
-    const blob = await zip.generateAsync({ type: "blob" });
-    download(blob, `converted_${count}_images.zip`);
+    const zipBlob = await zip.generateAsync({ type: "blob" });
+    download(zipBlob, `converted_${count}_images.zip`);
   }
 
   async function viewImage(i: number) {
@@ -143,7 +148,7 @@
     await new Promise<void>((resolve) => {
       dialog.onclose = () => resolve();
     });
-    viewIndex = null;
+    viewIndex = -1;
   }
 </script>
 
@@ -165,7 +170,7 @@
       +
     </button>
 
-    {#each images as { imageUrl }, i}
+    {#each images as { url: imageUrl }, i}
       <div class="w-full aspect-square relative group">
         <img alt="thumbnail" src={imageUrl} class="size-full object-cover" />
 
@@ -197,7 +202,7 @@
         class="bg-neutral-600 rounded-lg cursor-pointer px-4 py-2"
         bind:value={outputType}
       >
-        {#each FORMATS as { type, ext }}
+        {#each FORMATS as [type, ext]}
           <option value={type}>{ext}</option>
         {/each}
       </select>
@@ -238,31 +243,34 @@
   bind:this={dialog}
   class="max-h-none max-w-none size-full bg-transparent border-none backdrop:backdrop-blur-md backdrop:bg-black/70"
 >
-  {#if viewIndex !== null}
-    <div class="relative size-full flex">
-      <img
-        src={images[viewIndex].imageUrl}
-        alt="view"
-        class="size-full object-contain"
-      />
-      <button
-        class="absolute top-2 right-2 cursor-pointer text-white text-2xl"
-        onclick={() => dialog.close()}>✕</button
-      >
-
-      {#if viewIndex > 0}
+  {#if viewIndex !== -1}
+    {@const { url, name, ext } = images[viewIndex]}
+    <div class="size-full flex flex-col">
+      <div class="flex flex-row">
+        <p class="flex-1">{name} / {ext}</p>
         <button
-          class="absolute left-2 cursor-pointer text-white text-3xl self-center"
-          onclick={() => viewIndex!--}>🡨</button
+          class="cursor-pointer text-white text-2xl"
+          onclick={() => dialog.close()}>✕</button
         >
-      {/if}
+      </div>
 
-      {#if viewIndex < images.length - 1}
-        <button
-          class="absolute right-2 cursor-pointer text-white text-3xl self-center"
-          onclick={() => viewIndex!++}>🡪</button
-        >
-      {/if}
+      <div class="flex-1 min-h-0 relative flex">
+        <img src={url} alt="view" class="size-full object-contain" />
+
+        {#if viewIndex > 0}
+          <button
+            class="absolute left-2 cursor-pointer text-white text-3xl self-center"
+            onclick={() => viewIndex--}>🡨</button
+          >
+        {/if}
+
+        {#if viewIndex < images.length - 1}
+          <button
+            class="absolute right-2 cursor-pointer text-white text-3xl self-center"
+            onclick={() => viewIndex++}>🡪</button
+          >
+        {/if}
+      </div>
     </div>
   {/if}
 </dialog>

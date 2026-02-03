@@ -145,17 +145,18 @@
 
   {#if images.length === 0}
     <div class="flex-1 flex items-center justify-center">
-      <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div
-        class="w-3/4 h-3/4 rounded-xl bg-neutral-700/50 flex justify-center items-center"
+        role="region"
+        class="w-3/4 h-3/4 rounded-xl bg-neutral-700/50 flex flex-col justify-center items-center"
         ondragover={(e) => e.preventDefault()}
         ondrop={onDrop}
         onpaste={onPaste}
       >
         <button
-          class="bg-emerald-700 py-4 hover:bg-emerald-600 duration-150 rounded-xl cursor-pointer w-1/3"
+          class="bg-emerald-700 py-4 hover:bg-emerald-600 duration-150 rounded-xl cursor-pointer w-1/2 md:w-1/3"
           onclick={inputImages}>Add Images</button
         >
+        <p class="py-4">or Paste / Drop here</p>
       </div>
     </div>
   {:else}
